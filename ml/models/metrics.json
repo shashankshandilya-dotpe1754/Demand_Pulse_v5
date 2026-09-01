@@ -1,0 +1,34 @@
+{
+  "orders": {
+    "mae": 15.16,
+    "rmse": 21.929,
+    "mape_pct": 8.86,
+    "r2": 0.9329,
+    "log_resid_std": 0.1146,
+    "n": 72588
+  },
+  "orders_train": {
+    "mae": 8.226,
+    "rmse": 11.071,
+    "mape_pct": 5.75,
+    "r2": 0.9597,
+    "log_resid_std": 0.072,
+    "n": 330648
+  },
+  "aov": {
+    "mae": 58.348,
+    "rmse": 93.352,
+    "mape_pct": 4.68,
+    "r2": 0.9856,
+    "log_resid_std": 0.0597,
+    "n": 72588
+  },
+  "orders_naive_baseline": {
+    "mae": 52.461,
+    "rmse": 78.087,
+    "mape_pct": 27.78,
+    "r2": 0.1493,
+    "log_resid_std": 0.3544,
+    "n": 72588
+  }
+}

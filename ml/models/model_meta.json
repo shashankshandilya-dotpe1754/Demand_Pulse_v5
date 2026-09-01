@@ -1,0 +1,295 @@
+{
+  "trained_at": "2026-09-01T17:33:34",
+  "source": "synthetic",
+  "rows": 403236,
+  "features": [
+    "restaurant_type",
+    "city",
+    "state",
+    "zone",
+    "tier",
+    "lat",
+    "lon",
+    "dow",
+    "is_weekend",
+    "is_saturday",
+    "is_sunday",
+    "is_friday",
+    "month",
+    "day_of_month",
+    "week_of_year",
+    "doy_sin",
+    "doy_cos",
+    "month_sin",
+    "month_cos",
+    "is_payday_window",
+    "is_month_end",
+    "days_from_month_start",
+    "year_index",
+    "t_index",
+    "evt_cat_festival",
+    "evt_cat_government_holiday",
+    "evt_cat_sports_event",
+    "evt_cat_commercial_event",
+    "evt_cat_public_event",
+    "evt_cat_government_order",
+    "evt_cat_emergency_crisis",
+    "evt_cat_weather_event",
+    "evt_sub_hindu",
+    "evt_sub_muslim",
+    "evt_sub_christian",
+    "evt_sub_sikh",
+    "evt_sub_jain",
+    "evt_sub_buddhist",
+    "evt_sub_regional",
+    "evt_sub_national_holiday",
+    "evt_sub_civic",
+    "evt_sub_political",
+    "evt_sub_cricket",
+    "evt_sub_football",
+    "evt_sub_kabaddi",
+    "evt_sub_multi_sport",
+    "evt_sub_e_commerce_sale",
+    "evt_sub_f&b_promotion",
+    "evt_sub_commercial",
+    "evt_sub_liquor_ban",
+    "evt_sub_traffic_regulation",
+    "evt_sub_operating_hours",
+    "evt_sub_environmental",
+    "evt_sub_digital_mandate",
+    "evt_sub_food_safety",
+    "evt_sub_labour_regulation",
+    "evt_sub_heatwave",
+    "evt_sub_summer_heatwave",
+    "evt_sub_flood",
+    "evt_sub_cyclone",
+    "evt_sub_air_quality",
+    "evt_sub_natural_disaster",
+    "evt_sub_monsoon",
+    "evt_sub_winter",
+    "n_events",
+    "impact_sum",
+    "impact_max",
+    "impact_min",
+    "max_event_span",
+    "is_multiday_event",
+    "days_to_next_festival",
+    "days_since_last_festival",
+    "is_festival_eve",
+    "is_festival_day_after",
+    "n_pan_india_events",
+    "n_local_events",
+    "is_long_weekend",
+    "is_holiday_adjacent",
+    "temp_max",
+    "temp_min",
+    "temp_range",
+    "precip_mm",
+    "log_precip",
+    "weather_code",
+    "is_rain",
+    "is_heavy_rain",
+    "is_thunder",
+    "is_fog",
+    "is_extreme_heat",
+    "is_high_heat",
+    "is_cool",
+    "is_pleasant",
+    "has_weather_data"
+  ],
+  "categorical": [
+    "restaurant_type",
+    "city",
+    "state",
+    "zone"
+  ],
+  "targets": [
+    "log_orders_index",
+    "log_aov"
+  ],
+  "holdout_fraction": 0.18,
+  "cutoff_date": "2026-04-13",
+  "has_aov_model": true,
+  "trend_orders": {
+    "__global__": [
+      0.0002519884370692725,
+      4.745925335047332
+    ],
+    "Cafe": [
+      0.00032643860141384507,
+      4.717221140599017
+    ],
+    "Casual Dining": [
+      0.00017596874729137787,
+      4.708330461409179
+    ],
+    "Cloud Kitchen": [
+      0.0004610091610798568,
+      4.845877816559928
+    ],
+    "Fine Dining": [
+      0.00015719921469014607,
+      4.708588219173298
+    ],
+    "PBCL": [
+      0.0001327119910078194,
+      4.699211058155909
+    ],
+    "QSR": [
+      0.00025860290693257513,
+      4.7963233143866795
+    ]
+  },
+  "trend_aov": {
+    "__global__": [
+      0.0001569438619102294,
+      6.620430652733254
+    ],
+    "Cafe": [
+      0.00015555795012928494,
+      6.033990411387656
+    ],
+    "Casual Dining": [
+      0.00016203727809511938,
+      6.8484554822277355
+    ],
+    "Cloud Kitchen": [
+      0.00015052858396995695,
+      6.197921321384818
+    ],
+    "Fine Dining": [
+      0.00016679573198273565,
+      7.637348337697141
+    ],
+    "PBCL": [
+      0.00015231822001848184,
+      7.192716044479882
+    ],
+    "QSR": [
+      0.00015442540726580758,
+      5.812152319222287
+    ]
+  },
+  "top_features": [
+    {
+      "feature": "city",
+      "gain": 85266.61295211501
+    },
+    {
+      "feature": "dow",
+      "gain": 78845.88128662016
+    },
+    {
+      "feature": "restaurant_type",
+      "gain": 45690.89267129265
+    },
+    {
+      "feature": "precip_mm",
+      "gain": 22103.46048004832
+    },
+    {
+      "feature": "impact_min",
+      "gain": 18146.570603940636
+    },
+    {
+      "feature": "tier",
+      "gain": 9296.088072244078
+    },
+    {
+      "feature": "is_weekend",
+      "gain": 9176.10012331605
+    },
+    {
+      "feature": "evt_sub_monsoon",
+      "gain": 7544.975759673864
+    },
+    {
+      "feature": "week_of_year",
+      "gain": 5826.8811867795885
+    },
+    {
+      "feature": "days_to_next_festival",
+      "gain": 5318.752136479132
+    },
+    {
+      "feature": "doy_cos",
+      "gain": 5291.079069375526
+    },
+    {
+      "feature": "is_saturday",
+      "gain": 4895.8375127557665
+    },
+    {
+      "feature": "state",
+      "gain": 4863.766225325409
+    },
+    {
+      "feature": "evt_cat_emergency_crisis",
+      "gain": 4637.666317276657
+    },
+    {
+      "feature": "log_precip",
+      "gain": 3359.294505050406
+    },
+    {
+      "feature": "weather_code",
+      "gain": 2618.921400958672
+    },
+    {
+      "feature": "doy_sin",
+      "gain": 2521.5541760372
+    },
+    {
+      "feature": "is_friday",
+      "gain": 1761.6583696827292
+    },
+    {
+      "feature": "day_of_month",
+      "gain": 1575.1502150623128
+    },
+    {
+      "feature": "impact_sum",
+      "gain": 1456.2561438363045
+    },
+    {
+      "feature": "evt_cat_sports_event",
+      "gain": 1428.583945996128
+    },
+    {
+      "feature": "evt_cat_festival",
+      "gain": 1043.0431593414396
+    },
+    {
+      "feature": "temp_max",
+      "gain": 729.8231781804934
+    },
+    {
+      "feature": "evt_sub_cricket",
+      "gain": 690.5561002697796
+    },
+    {
+      "feature": "month_sin",
+      "gain": 627.9131115842611
+    },
+    {
+      "feature": "month",
+      "gain": 558.0271114022471
+    },
+    {
+      "feature": "lat",
+      "gain": 546.4388721529394
+    },
+    {
+      "feature": "evt_sub_muslim",
+      "gain": 507.35943564772606
+    },
+    {
+      "feature": "evt_sub_hindu",
+      "gain": 419.584987568669
+    },
+    {
+      "feature": "is_payday_window",
+      "gain": 378.96253347955644
+    }
+  ]
+}
