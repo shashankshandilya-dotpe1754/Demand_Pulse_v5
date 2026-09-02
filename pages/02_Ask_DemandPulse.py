@@ -16,7 +16,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from ml.chat_agent import answer                     # noqa: E402
-from ml.llm import LLMUnavailable, status            # noqa: E402
+from ml.llm import LLMUnavailable                    # noqa: E402
+from pages._llm_sidebar import llm_sidebar           # noqa: E402
 
 st.set_page_config(page_title="Ask DemandPulse", page_icon="💬", layout="wide")
 
@@ -43,19 +44,9 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-llm = status()
+llm = llm_sidebar()
 
 with st.sidebar:
-    st.markdown("### 🔌 LLM status")
-    if llm["available"]:
-        st.success(f"{llm['provider']} · {llm['model']}")
-    else:
-        st.error("No API key configured")
-        st.caption(llm["hint"])
-        st.markdown(
-            "**Local:** set `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) in your shell.\n\n"
-            "**Streamlit Cloud:** app → Settings → Secrets:\n"
-            "```toml\nANTHROPIC_API_KEY = \"sk-ant-…\"\n```")
     st.markdown("---")
     st.markdown("### 🧭 What it can answer")
     st.caption(
@@ -64,10 +55,21 @@ with st.sidebar:
         "• which events are driving a spike\n\n"
         "• how accurate the model is\n\n"
         "It cannot see your own sales, menu or competitors.")
-    if st.button("🗑️ Clear conversation"):
+    if st.button("🗑️ Clear conversation", use_container_width=True):
         st.session_state.pop("chat", None)
         st.session_state.pop("history", None)
         st.rerun()
+
+if not llm["available"]:
+    st.warning(
+        "**No language model connected yet.** The forecasting model works fine "
+        "without one — only this chat layer needs it. Two options:\n\n"
+        "**Ollama** — free, runs on your machine, no API key: install from "
+        "[ollama.com](https://ollama.com/download), then `ollama pull qwen2.5:7b` "
+        "and `ollama serve`.\n\n"
+        "**GPT-4** — set `OPENAI_API_KEY` and `DEMANDPULSE_LLM_MODEL=gpt-4o`.\n\n"
+        "Setup commands are in the sidebar. Meanwhile, the Restaurant Impact page "
+        "gives you the same forecasts without the conversation.")
 
 SUGGESTIONS = [
     "What does Diwali week look like for a cloud kitchen in Bengaluru?",
@@ -107,11 +109,12 @@ if prompt:
         st.markdown(prompt)
     with st.chat_message("assistant"):
         if not llm["available"]:
-            st.warning("Add an LLM API key to enable chat — see the sidebar. "
-                       "The forecasts themselves work without it; only this "
-                       "conversational layer needs a key.")
-            st.session_state.chat.append(
-                {"role": "assistant", "content": "_(LLM key not configured)_"})
+            msg = ("I can't answer yet — no language model is connected. "
+                   "Run Ollama locally (free, no key) or set an OpenAI/Anthropic key; "
+                   "the sidebar has the exact commands. The forecasts themselves are "
+                   "unaffected — the Restaurant Impact page still works.")
+            st.warning(msg)
+            st.session_state.chat.append({"role": "assistant", "content": msg})
         else:
             with st.spinner("Consulting the forecast model…"):
                 try:

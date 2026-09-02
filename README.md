@@ -161,40 +161,61 @@ python -m ml.uplift      --csv data/training/campaigns.csv --segment city
 python -m ml.event_ingest --year 2027          # then approve in the dashboard
 ```
 
-## LLM configuration
+## Language model configuration
 
-Chat and event ingestion need one API key; everything else works without one.
+Chat and event ingestion need a language model; everything else works without one.
+Three options, no code changes to switch between them.
+
+### Ollama — free, local, no API key
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...      # or OPENAI_API_KEY=sk-...
+# install from ollama.com/download
+ollama pull qwen2.5:7b        # tool-calling capable
+ollama serve
+
+export DEMANDPULSE_LLM_PROVIDER=ollama
+export DEMANDPULSE_LLM_MODEL=qwen2.5:7b
 ```
 
-On Streamlit Cloud: app → Settings → Secrets
+Nothing leaves your machine. Pick a model that supports **tool calling** — qwen2.5,
+llama3.1/3.2/3.3, mistral-nemo, command-r. Models without it can still do event
+ingestion (plain JSON), but the chat assistant needs tools to reach the forecaster;
+the sidebar warns you when the selected model probably can't.
+
+> A **deployed** Streamlit app cannot reach Ollama running on your laptop — different
+> machines. Ollama is for local runs, unless you expose it at a URL the app can reach
+> and set `DEMANDPULSE_OLLAMA_URL`.
+
+### OpenAI — GPT-4o / GPT-4 Turbo
+
+```bash
+export OPENAI_API_KEY=sk-...
+export DEMANDPULSE_LLM_PROVIDER=openai
+export DEMANDPULSE_LLM_MODEL=gpt-4o          # or gpt-4-turbo, gpt-4.1, gpt-4o-mini
+```
+
+Any OpenAI-compatible gateway (LM Studio, vLLM, Groq, Together, OpenRouter) works too —
+also set `OPENAI_BASE_URL`.
+
+### Anthropic — Claude
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### On Streamlit Cloud
+
+App → Settings → Secrets:
 
 ```toml
-ANTHROPIC_API_KEY = "sk-ant-..."
+OPENAI_API_KEY = "sk-..."
+DEMANDPULSE_LLM_PROVIDER = "openai"
+DEMANDPULSE_LLM_MODEL = "gpt-4o"
 ```
 
-Set `DEMANDPULSE_LLM_PROVIDER=openai` to switch providers, `DEMANDPULSE_LLM_MODEL`
-to pin a model. With no key the pages show a clear prompt and the forecasting
-app carries on unaffected.
-
-> **Note on training data.** The shipped models are trained on a synthetic
-> bootstrap panel, not real sales history — they demonstrate a working pipeline
-> and encode a reasonable prior, not evidence about real demand. Drop real
-> history at `data/training/real_history.csv` and rerun `python -m ml.train`;
-> the schema is in [`ml/README.md`](ml/README.md).
-
-## Engine selection
-
-| env var | effect |
-|---|---|
-| *(unset)* | ML if a trained model exists, else the legacy rule engine |
-| `DEMANDPULSE_ENGINE=ml` | force ML, raise if unavailable |
-| `DEMANDPULSE_ENGINE=rules` | force the legacy multiplier engine |
-
-The rule-based multipliers are kept deliberately: they are the fallback when no
-model file is present, and the A/B baseline behind `/forecast/compare`.
+With nothing configured, the two LLM pages explain how to set one up and the
+forecasting app carries on unaffected. Provider auto-detection order: Anthropic key →
+OpenAI key → a reachable Ollama server.
 
 ## API endpoints
 

@@ -246,10 +246,8 @@ DISPATCH = {
 def answer(question: str, history: list = None) -> dict:
     """Answer one question, running tool calls until the model is done."""
     if not available():
-        raise LLMUnavailable(
-            "Chat needs an LLM key — set ANTHROPIC_API_KEY or OPENAI_API_KEY in the "
-            "environment, or in Streamlit secrets when deployed."
-        )
+        from ml.llm import status
+        raise LLMUnavailable(status()["hint"])
 
     messages = list(history or []) + [{"role": "user", "content": question}]
     system = SYSTEM.format(today=date.today().isoformat())
@@ -283,7 +281,13 @@ def _assistant_block(resp):
     """Provider-shaped assistant turn carrying the tool calls."""
     from ml.llm import provider
 
-    if provider() == "anthropic":
+    p = provider()
+    if p == "ollama":
+        # Ollama takes plain strings — describe the calls so the next turn has context.
+        calls = "; ".join(f"{c['name']}({json.dumps(c['input'])})"
+                          for c in resp["tool_calls"])
+        return (resp["text"] or "") + (f"\n[calling {calls}]" if calls else "")
+    if p == "anthropic":
         blocks = ([{"type": "text", "text": resp["text"]}] if resp["text"] else []) + [
             {"type": "tool_use", "id": c["id"], "name": c["name"], "input": c["input"]}
             for c in resp["tool_calls"]
@@ -299,10 +303,10 @@ def _result_block(results):
         return [{"type": "tool_result", "tool_use_id": c["id"],
                  "content": json.dumps(out, default=str)[:12000]}
                 for c, out in results]
-    return "TOOL RESULTS:\n" + "\n".join(
+    # OpenAI-compatible and Ollama both accept the results as a plain user turn.
+    return ("TOOL RESULTS — use these figures, do not invent others:\n" + "\n".join(
         f"{c['name']}({json.dumps(c['input'])}) -> {json.dumps(out, default=str)[:6000]}"
-        for c, out in results
-    )
+        for c, out in results))
 
 
 if __name__ == "__main__":

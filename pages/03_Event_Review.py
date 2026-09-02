@@ -20,7 +20,8 @@ sys.path.insert(0, ROOT)
 from data.events_db import EVENTS_DB                                   # noqa: E402
 from ml.event_ingest import (approve_ids, load_pending, propose_for_year,  # noqa: E402
                              propose_from_text, propose_from_urls, reject_ids)
-from ml.llm import LLMUnavailable, status                              # noqa: E402
+from ml.llm import LLMUnavailable                                     # noqa: E402
+from pages._llm_sidebar import llm_sidebar                            # noqa: E402
 
 st.set_page_config(page_title="Event Review", page_icon="🗂️", layout="wide")
 
@@ -49,14 +50,9 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-llm = status()
+llm = llm_sidebar()
 
 with st.sidebar:
-    st.markdown("### 🔌 LLM status")
-    st.success(f"{llm['provider']} · {llm['model']}") if llm["available"] \
-        else st.error("No API key configured")
-    if not llm["available"]:
-        st.caption(llm["hint"])
     st.markdown("---")
     st.markdown("### 📊 Database")
     st.metric("Events in DB", len(EVENTS_DB))
@@ -72,8 +68,9 @@ tab_propose, tab_review, tab_browse = st.tabs(
 # ── Propose ───────────────────────────────────────────────────────────────────
 with tab_propose:
     if not llm["available"]:
-        st.warning("Proposing events needs an LLM key. The rest of the app works "
-                   "without one — you can still browse and hand-edit the database.")
+        st.warning("Proposing events needs a language model — Ollama runs locally with "
+                   "no API key (see the sidebar). The rest of the app works without "
+                   "one: you can still browse and hand-edit the database.")
     mode = st.radio("Source", ["Whole year calendar", "Web pages", "Pasted text"],
                     horizontal=True)
 
