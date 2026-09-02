@@ -8,9 +8,9 @@ DemandPulse forecasts daily order volume and average order value for six
 restaurant formats — **QSR, Fine Dining, PBCL, Casual Dining, Cloud Kitchen and
 Cafe** — across **130 Indian cities**.
 
-It combines a curated events database (236 festivals, gazetted holidays, sports
-fixtures, commercial events, government orders and emergency crises, geo-scoped
-to city, state, zone or pan-India) with live Open-Meteo weather, and feeds both
+It combines a curated events database (260 entries — 163 festivals plus gazetted
+holidays, sports fixtures, commercial events, government orders and emergency
+crises, geo-scoped to city, state, zone or pan-India) with live Open-Meteo weather, and feeds both
 into a LightGBM model that has learned how each factor moves demand for each
 format in each city. A Diwali weekend lifts fine dining and suppresses pubs;
 heavy monsoon rain crashes dine-in while cloud kitchens spike; a liquor ban guts
@@ -19,6 +19,10 @@ history instead of relying on hand-written multipliers.
 
 Ships as a **Streamlit dashboard** and a **FastAPI service**, with every forecast
 explained: which events drove it, by how much, and how confident the model is.
+
+Around the forecaster sit four more layers: **calibrated prediction intervals**,
+**LLM-assisted event ingestion**, a **chat assistant** that answers by calling the
+model, and **anomaly, drift and campaign-uplift** analysis.
 
 ---
 
@@ -56,10 +60,14 @@ JSON API.
 
 ```
 ├── dashboard.py            Streamlit dashboard (main entry point)
-├── pages/                  Restaurant-impact page
+├── pages/
+│   ├── 01_Restaurant_Impact.py   per-format demand view
+│   ├── 02_Ask_DemandPulse.py     chat assistant over the model
+│   ├── 03_Event_Review.py        approve LLM-proposed calendar events
+│   └── 04_Model_Health.py        anomalies, drift, campaign uplift
 ├── main.py                 FastAPI service: events, weather, forecasts
 ├── data/
-│   ├── events_db.py        236 Pan-India events, 2023–2026
+│   ├── events_db.py        260 Pan-India events, 2023–2026
 │   ├── india_geo.py        130 cities with zone / state / coordinates
 │   └── training/           training CSVs (generated, git-ignored)
 ├── utils/
@@ -69,8 +77,13 @@ JSON API.
 └── ml/                     the forecasting model — see ml/README.md
     ├── features.py         93 features (events, weather, calendar, geo)
     ├── simulate.py         bootstrap training-data generator
-    ├── train.py            time-split LightGBM training
+    ├── train.py            time-split training: mean, AOV and quantile models
     ├── predict.py          inference + counterfactual explanations
+    ├── llm.py              provider-agnostic LLM client (Anthropic / OpenAI)
+    ├── event_ingest.py     LLM → validation → human review → events DB
+    ├── chat_agent.py       tool-calling assistant over the forecast model
+    ├── anomaly.py          conformal anomaly detection + drift monitoring
+    ├── uplift.py           cross-fitted causal uplift for campaigns
     └── models/             trained boosters + validation metrics
 ```
 
@@ -92,12 +105,79 @@ together.
 
 | model | MAPE | R² |
 |---|---|---|
-| orders | **8.86%** | 0.933 |
-| naive day-of-week × type baseline | 27.78% | 0.149 |
-| AOV | 4.68% | 0.986 |
+| orders | **8.68%** | 0.935 |
+| naive day-of-week × type baseline | 28.05% | 0.125 |
+| AOV | 4.66% | 0.986 |
 
 Validated on a strict time split (trained before 2026-04-13, scored after), so
 the score measures forecasting rather than interpolation.
+
+### Prediction intervals
+
+Separate LightGBM quantile models (p10 / p50 / p90) give each day its own
+uncertainty instead of stretching one global spread over the year — a wet
+Tuesday gets a ±14% band, a monsoon thunderstorm ±21%.
+
+Raw quantile models under-cover when extrapolating forward (they managed 62.8%
+where 80% was claimed), so they are **conformalised**: a calibration constant
+from held-out data widens both edges until coverage is exactly what it says.
+
+| | coverage of held-out days |
+|---|---|
+| raw p10–p90 | 62.8% |
+| conformalised (CQR) | **80.0%** ← target |
+
+## Beyond forecasting
+
+| layer | what it answers | needs |
+|---|---|---|
+| **Chat assistant** (`ml/chat_agent.py`) | "Should I add staff in Bengaluru this weekend?" | LLM key |
+| **Event ingestion** (`ml/event_ingest.py`) | keeps the calendar correct without hand-maintenance | LLM key |
+| **Anomaly & drift** (`ml/anomaly.py`) | "which days did we badly miss, and is the model degrading?" | your actuals |
+| **Campaign uplift** (`ml/uplift.py`) | "did the promo cause orders, or discount people who were coming anyway?" | campaign log |
+
+The chat assistant is **not allowed to produce a number**. It has four tools, all
+of which call the trained model or the events database, and its job is to route
+and narrate. Every figure in an answer traces to a `predict_impact()` call, shown
+under "sources" in the UI.
+
+Event ingestion has the same discipline in reverse: the LLM proposes structured
+events, **hard Python validation** rejects unknown cities, impossible date spans,
+wrong categories and duplicates, and a human approves what survives. Nothing an
+LLM writes reaches the database unreviewed. This exists because the calendar was
+hand-maintained, and nine 2026 festival dates were wrong — including Janmashtami,
+which sat in the wrong month entirely.
+
+Uplift uses a cross-fitted T-learner plus an IPW cross-check on out-of-fold
+propensities, and reports overlap and confounding strength alongside the estimate.
+On a test where the true campaign effect was +15%, the naive difference reported
++35% while the causal estimate landed at +19.7%. It says plainly when the data
+cannot support a causal claim; a geo/switchback holdout remains the trustworthy
+version.
+
+```bash
+python -m ml.anomaly     --csv data/training/actuals.csv
+python -m ml.uplift      --csv data/training/campaigns.csv --segment city
+python -m ml.event_ingest --year 2027          # then approve in the dashboard
+```
+
+## LLM configuration
+
+Chat and event ingestion need one API key; everything else works without one.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...      # or OPENAI_API_KEY=sk-...
+```
+
+On Streamlit Cloud: app → Settings → Secrets
+
+```toml
+ANTHROPIC_API_KEY = "sk-ant-..."
+```
+
+Set `DEMANDPULSE_LLM_PROVIDER=openai` to switch providers, `DEMANDPULSE_LLM_MODEL`
+to pin a model. With no key the pages show a clear prompt and the forecasting
+app carries on unaffected.
 
 > **Note on training data.** The shipped models are trained on a synthetic
 > bootstrap panel, not real sales history — they demonstrate a working pipeline
@@ -123,7 +203,10 @@ model file is present, and the A/B baseline behind `/forecast/compare`.
 | `GET /forecast/day?city=Bengaluru` | one day, all six formats, live weather attached |
 | `GET /forecast/range?city=Mumbai&start_date=…&end_date=…` | up to 120 days |
 | `GET /forecast/compare?city=New Delhi&forecast_date=…&restaurant_type=PBCL` | ML vs rules, side by side |
-| `GET /ml/model-info` | active engine, training date, holdout scores, top features |
+| `GET /ml/model-info` | active engine, training date, holdout scores, interval coverage |
+| `POST /chat` | ask a demand question in plain language (needs an LLM key) |
+| `GET /llm/status` | whether the LLM layer is configured |
+| `GET /ingest/pending` · `POST /ingest/propose` · `POST /ingest/approve` | event review queue |
 | `GET /events/today`, `/events/range`, `/events/category/{c}` | events database |
 | `GET /weather/city/{city}` | historical + 7-day forecast |
 | `GET /calendar/{date}?city=…` | full day context card |

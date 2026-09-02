@@ -97,6 +97,8 @@ def root():
             "forecast_range":   "/forecast/range?city=Mumbai&start_date=2026-10-01&end_date=2026-10-31",
             "forecast_compare": "/forecast/compare?city=New Delhi&forecast_date=2026-10-20&restaurant_type=PBCL",
             "ml_model_info":    "/ml/model-info",
+            "chat":             "POST /chat",
+            "ingest_pending":   "/ingest/pending",
         },
     }
 
@@ -630,3 +632,73 @@ def forecast_compare(
                            temp_max=wx.get("temp_max_c"),
                            precip_mm=wx.get("precipitation_mm"),
                            weather_code=wx.get("weather_code"))
+
+
+# ─── Chat, ingestion & health endpoints ───────────────────────────────────────
+from fastapi import Body                                            # noqa: E402
+
+
+@app.post("/chat", tags=["Assistant"])
+def chat_endpoint(question: str = Body(..., embed=True)):
+    """Ask a demand question in plain language.
+
+    The assistant answers by calling the trained model — `tool_trace` shows
+    exactly which forecasts backed the reply. Needs an LLM key
+    (ANTHROPIC_API_KEY or OPENAI_API_KEY); without one it returns 503.
+    """
+    from ml.chat_agent import answer
+    from ml.llm import LLMUnavailable
+
+    try:
+        res = answer(question)
+    except LLMUnavailable as exc:
+        raise HTTPException(503, str(exc))
+    return {"question": question, "answer": res["text"], "tool_trace": res["tool_trace"]}
+
+
+@app.get("/llm/status", tags=["Assistant"])
+def llm_status():
+    """Whether the LLM layer is configured, and with which provider."""
+    from ml.llm import status
+    return status()
+
+
+@app.get("/ingest/pending", tags=["Events"])
+def ingest_pending():
+    """Candidate events proposed by the LLM and awaiting human approval."""
+    from ml.event_ingest import load_pending
+    pending = load_pending()
+    return {"count": len(pending), "candidates": pending}
+
+
+@app.post("/ingest/propose", tags=["Events"])
+def ingest_propose(year: Optional[int] = Body(None, embed=True),
+                   text: Optional[str] = Body(None, embed=True)):
+    """Propose calendar events for a year, or extract them from pasted text.
+
+    Nothing is written to the events database here — candidates land in the
+    review queue and must be approved.
+    """
+    from ml.event_ingest import propose_for_year, propose_from_text
+    from ml.llm import LLMUnavailable
+
+    if not year and not text:
+        raise HTTPException(400, "supply either `year` or `text`")
+    try:
+        return propose_for_year(year) if year else propose_from_text(text)
+    except LLMUnavailable as exc:
+        raise HTTPException(503, str(exc))
+
+
+@app.post("/ingest/approve", tags=["Events"])
+def ingest_approve(ids: List[str] = Body(..., embed=True)):
+    """Merge approved candidate events into the events database."""
+    from ml.event_ingest import approve_ids
+    return approve_ids(ids)
+
+
+@app.post("/ingest/reject", tags=["Events"])
+def ingest_reject(ids: List[str] = Body(..., embed=True)):
+    """Drop candidate events from the review queue."""
+    from ml.event_ingest import reject_ids
+    return reject_ids(ids)

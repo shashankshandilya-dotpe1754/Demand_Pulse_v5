@@ -33,6 +33,9 @@ import pandas as pd
 
 from ml.config import (
     AOV_MODEL_PATH,
+    QUANTILES,
+    QUANTILE_BOOST_ROUND,
+    QUANTILE_PATHS,
     EARLY_STOPPING,
     LGBM_PARAMS,
     METRICS_PATH,
@@ -90,6 +93,27 @@ def trend_values(X, trend: dict) -> np.ndarray:
     return slope * t + inter
 
 
+def pinball_loss(y_true, y_pred, q: float) -> float:
+    d = np.asarray(y_true) - np.asarray(y_pred)
+    return float(np.mean(np.maximum(q * d, (q - 1) * d)))
+
+
+def _fit_quantile(X_tr, y_tr, X_va, y_va, q, off_tr, off_va):
+    """One LightGBM quantile regressor for level `q` on the same features."""
+    params = dict(LGBM_PARAMS, objective="quantile", alpha=q, metric="quantile",
+                  seed=RANDOM_SEED)
+    dtr = lgb.Dataset(X_tr, label=y_tr, categorical_feature=CATEGORICAL_COLUMNS,
+                      init_score=off_tr, free_raw_data=False)
+    dva = lgb.Dataset(X_va, label=y_va, reference=dtr, init_score=off_va,
+                      categorical_feature=CATEGORICAL_COLUMNS, free_raw_data=False)
+    return lgb.train(
+        params, dtr, num_boost_round=QUANTILE_BOOST_ROUND, valid_sets=[dva],
+        valid_names=[f"q{int(q*100)}"],
+        callbacks=[lgb.early_stopping(EARLY_STOPPING, verbose=False),
+                   lgb.log_evaluation(0)],
+    )
+
+
 def _fit(X_tr, y_tr, X_va, y_va, label, off_tr=None, off_va=None):
     dtr = lgb.Dataset(X_tr, label=y_tr, categorical_feature=CATEGORICAL_COLUMNS,
                       init_score=off_tr, free_raw_data=False)
@@ -137,6 +161,55 @@ def train(holdout: float = 0.18, rebuild: bool = False, real_weather: bool = Fal
     results["orders_train"] = _metrics(y_orders[tr], m_orders.predict(X[tr]) + off[tr])
     m_orders.save_model(ORDERS_MODEL_PATH)
 
+    # ── Quantile models: honest per-day intervals ─────────────────────────────
+    # The mean model says "about 180 orders". A staffing decision needs "180,
+    # and realistically between 140 and 240" — and that spread is much wider on
+    # Diwali than on a wet Tuesday, which a single global residual sigma cannot
+    # express. One LightGBM per quantile, sharing the same features and trend.
+    print("\n[train] quantile models (p10 / p50 / p90)")
+    q_metrics, covered = {}, None
+    for q in QUANTILES:
+        mq = _fit_quantile(X[tr], y_orders[tr], X[va], y_orders[va], q, off[tr], off[va])
+        pred_va = mq.predict(X[va]) + off[va]
+        q_metrics[f"q{int(q*100)}"] = {
+            "pinball": round(pinball_loss(y_orders[va], pred_va, q), 5),
+            "empirical_below_pct": round(float(np.mean(y_orders[va] <= pred_va) * 100), 2),
+        }
+        mq.save_model(QUANTILE_PATHS[q])
+        if q == 0.1:
+            lo_va = pred_va
+        if q == 0.9:
+            hi_va = pred_va
+        print(f"   q{int(q*100)}  pinball {q_metrics[f'q{int(q*100)}']['pinball']:.5f}  "
+              f"below {q_metrics[f'q{int(q*100)}']['empirical_below_pct']:.1f}%")
+    # ── Conformalise (CQR) ────────────────────────────────────────────────────
+    # Raw quantile regressors under-cover when extrapolating into the future:
+    # trained p10/p90 gave only ~63% coverage on held-out future dates, not 80%.
+    # Conformalized Quantile Regression fixes this with one calibration constant:
+    # take the conformity score E = max(q10 - y, y - q90) on held-out data and
+    # widen both edges by its 80th percentile. The interval then covers 80% by
+    # construction rather than by assumption.
+    raw_cov = float(np.mean((y_orders[va] >= lo_va) & (y_orders[va] <= hi_va)) * 100)
+    conformity = np.maximum(lo_va - y_orders[va], y_orders[va] - hi_va)
+    n_va = len(conformity)
+    k = min(int(np.ceil((n_va + 1) * 0.80)), n_va) - 1
+    margin = float(np.sort(conformity)[k])
+    margin = max(margin, 0.0)
+    lo_c, hi_c = lo_va - margin, hi_va + margin
+    covered = float(np.mean((y_orders[va] >= lo_c) & (y_orders[va] <= hi_c)) * 100)
+    width = float(np.mean(np.exp(hi_c) - np.exp(lo_c)))
+    q_metrics["interval_80"] = {
+        "raw_coverage_pct": round(raw_cov, 2),
+        "conformal_margin_log": round(margin, 4),
+        "empirical_coverage_pct": round(covered, 2),   # target: 80
+        "mean_width_index_pts": round(width, 2),
+    }
+    results["quantiles"] = q_metrics
+    print(f"   raw 80% interval covered {raw_cov:.1f}% — conformal margin "
+          f"{margin:.3f} log units")
+    print(f"   calibrated interval covers {covered:.1f}% of held-out days "
+          f"(target 80), mean width {width:.0f} index pts")
+
     m_aov, trend_a = None, None
     if y_aov is not None and not np.all(np.isnan(y_aov)):
         print("\n[train] AOV model")
@@ -167,6 +240,9 @@ def train(holdout: float = 0.18, rebuild: bool = False, real_weather: bool = Fal
         "holdout_fraction": holdout,
         "cutoff_date": str(pd.Timestamp(cut_date).date()),
         "has_aov_model": m_aov is not None,
+        "has_quantile_models": True,
+        "quantiles": QUANTILES,
+        "cqr_margin": margin,
         "trend_orders": trend_o,
         "trend_aov": trend_a,
         "top_features": [{"feature": f, "gain": float(g)} for f, g in imp],
@@ -178,6 +254,8 @@ def train(holdout: float = 0.18, rebuild: bool = False, real_weather: bool = Fal
 
     print("\n──────── validation (held-out future dates) ────────")
     for k, v in results.items():
+        if k == "quantiles":
+            continue
         print(f"{k:24s} MAPE {v['mape_pct']:6.2f}%   MAE {v['mae']:7.2f}   R² {v['r2']}")
     print("\nTop features by gain:")
     for f, g in imp[:15]:

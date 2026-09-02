@@ -503,61 +503,6 @@ if hist:
 else:
     st.info("Historical demand data unavailable.")
 
-# ── UPCOMING TIMELINE ──────────────────────────────────────────────────────────
-st.markdown('<div class="section-hdr">🔮 Upcoming 30-Day Event Timeline</div>',
-            unsafe_allow_html=True)
-upcoming = get_events(today.isoformat(),(today+timedelta(days=30)).isoformat(),city=city)
-if upcoming:
-    try:
-        import plotly.graph_objects as go2
-        fig2 = go2.Figure()
-        seen = set()
-        for ev in upcoming:
-            cat   = ev.get("category","Other")
-            color = CAT_COLOR.get(cat,"#546E7A")
-            name  = ev["name"]
-            ico   = CAT_EMOJI.get(cat,"📌")
-            sd    = ev["start_date"]
-            ed    = ev["end_date"]
-            dur   = (date.fromisoformat(ed)-date.fromisoformat(sd)).days+1
-            fig2.add_trace(go2.Bar(
-                x=[dur],y=[f"{ico} {name[:35]}"],base=[sd],orientation="h",
-                marker=dict(color=color,opacity=0.8),
-                name=cat if cat not in seen else "",showlegend=(cat not in seen),
-                hovertemplate=f"<b>{name}</b><br>{sd} → {ed}<br>{cat}<extra></extra>",
-            ))
-            seen.add(cat)
-        fig2.add_vline(x=today.isoformat(),line_color="rgba(255,255,255,.5)",
-                       line_dash="dash",line_width=1.5)
-        fig2.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,.03)",
-            font=dict(color="white",family="Inter"),barmode="stack",
-            height=max(200,len(upcoming)*38),margin=dict(l=0,r=0,t=10,b=0),
-            xaxis=dict(type="date",gridcolor="rgba(255,255,255,.08)",
-                       tickfont=dict(color="rgba(255,255,255,.6)")),
-            yaxis=dict(gridcolor="rgba(255,255,255,.05)",
-                       tickfont=dict(color="rgba(255,255,255,.8)",size=11)),
-            legend=dict(orientation="h",yanchor="bottom",y=1.02,
-                        bgcolor="rgba(0,0,0,0)",font=dict(color="white",size=11)),
-        )
-        st.plotly_chart(fig2, use_container_width=True)
-    except Exception:
-        for ev in upcoming:
-            cat  = ev.get("category","")
-            ico  = CAT_EMOJI.get(cat,"📌")
-            col  = CAT_COLOR.get(cat,"#546E7A")
-            st.markdown(f"""
-            <div style="background:{col}22;border-left:3px solid {col};
-              border-radius:8px;padding:8px 14px;margin-bottom:6px;color:white;font-size:13px">
-              {ico} <b>{ev['name']}</b> &nbsp;·&nbsp; {ev['start_date']}
-            </div>""", unsafe_allow_html=True)
-else:
-    st.markdown("""
-    <div style="background:rgba(255,255,255,.05);border-radius:16px;padding:24px;
-      text-align:center;color:rgba(255,255,255,.4)">
-      📭 No upcoming events in next 30 days for this city.
-    </div>""", unsafe_allow_html=True)
-
 # ── FOOTER ─────────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div style="text-align:center;color:rgba(255,255,255,.25);font-size:11px;

@@ -43,6 +43,8 @@ import numpy as np
 
 from ml.config import (
     AOV_MODEL_PATH,
+    QUANTILES,
+    QUANTILE_PATHS,
     BASELINE_AOV,
     METRICS_PATH,
     META_PATH,
@@ -68,6 +70,7 @@ class _Engine:
     def __init__(self):
         self.orders = None
         self.aov = None
+        self.quantiles = {}
         self.meta = {}
         self.metrics = {}
         self.loaded = False
@@ -86,6 +89,9 @@ class _Engine:
             self.orders = lgb.Booster(model_file=ORDERS_MODEL_PATH)
             if os.path.exists(AOV_MODEL_PATH):
                 self.aov = lgb.Booster(model_file=AOV_MODEL_PATH)
+            for q, path in QUANTILE_PATHS.items():
+                if os.path.exists(path):
+                    self.quantiles[q] = lgb.Booster(model_file=path)
             if os.path.exists(META_PATH):
                 self.meta = json.load(open(META_PATH))
             if os.path.exists(METRICS_PATH):
@@ -114,6 +120,26 @@ class _Engine:
             return None
         return np.exp(self.aov.predict(X) + self._offset(X, "aov"))
 
+    def predict_quantiles(self, X, rows=None):
+        """{quantile: predicted index} for the requested rows, or None if untrained.
+
+        The conformal margin from training is applied here, so the returned p10/p90
+        really do bracket ~80% of outcomes rather than the ~63% the raw quantile
+        models managed on held-out future dates.
+        """
+        if len(self.quantiles) < 2:
+            return None
+        Xr = X if rows is None else X.iloc[rows]
+        off = self._offset(Xr, "orders")
+        margin = float((self.meta or {}).get("cqr_margin") or 0.0)
+        out = {}
+        for q, booster in self.quantiles.items():
+            adj = -margin if q <= 0.5 else (margin if q >= 0.9 else 0.0)
+            if q == 0.5:
+                adj = 0.0
+            out[q] = np.exp(booster.predict(Xr) + off + adj)
+        return out
+
     def contributions(self, X):
         """LightGBM native SHAP values (last column is the base value)."""
         return self.orders.predict(X, pred_contrib=True)
@@ -138,6 +164,9 @@ def model_info() -> dict:
         "training_rows": ENGINE.meta.get("rows"),
         "n_features": len(ENGINE.meta.get("features", [])),
         "has_aov_model": ENGINE.meta.get("has_aov_model", False),
+        "has_quantile_models": bool(ENGINE.quantiles),
+        "interval_coverage_pct": (ENGINE.metrics.get("quantiles", {})
+                                  .get("interval_80", {}).get("empirical_coverage_pct")),
         "validation": {
             "orders_mape_pct": m.get("mape_pct"),
             "orders_r2": m.get("r2"),
@@ -345,7 +374,8 @@ def _event_effects(p, evs, attr) -> list:
 
 
 def _assemble(city, pred_date, rest_type, wx, evs, attr, p, aov_pred,
-              explain: bool, X=None, base_row: int = 0) -> dict:
+              explain: bool, X=None, base_row: int = 0,
+              q_pred=None, qscale: float = 1.0) -> dict:
     # `X` is passed only when grouped SHAP drivers are wanted — they cost ~150ms
     # per call, so callers that do not display them leave X as None.
     """Turn scored counterfactual rows into the app's prediction dict."""
@@ -393,8 +423,27 @@ def _assemble(city, pred_date, rest_type, wx, evs, attr, p, aov_pred,
 
     revenue_total_mult = round(total_mult * aov_mult, 3)
 
+    # ── Uncertainty ───────────────────────────────────────────────────────────
+    # Preferred: the trained quantile models (conformally calibrated), which widen
+    # on genuinely uncertain days — festivals, storms — instead of stretching one
+    # global spread over every day. Falls back to the residual-sigma band when the
+    # quantile models have not been trained.
+    interval_source = "residual_sigma"
     sigma = float(ENGINE.metrics.get("orders", {}).get("log_resid_std") or 0.12)
     lo, hi = round(A * math.exp(-1.28 * sigma), 1), round(A * math.exp(1.28 * sigma), 1)
+    median = None
+    if q_pred:
+        try:
+            lo = round(float(q_pred[0.1][0]) * qscale, 1)
+            hi = round(float(q_pred[0.9][0]) * qscale, 1)
+            if 0.5 in q_pred:
+                median = round(float(q_pred[0.5][0]) * qscale, 1)
+            interval_source = "quantile_conformal"
+        except Exception:                                          # noqa: BLE001
+            pass
+    if hi < lo:
+        lo, hi = hi, lo
+
     if len(evs) == 0 and abs(pct_change) < 8:
         confidence = "High"
     elif sigma > 0.25 or abs(pct_change) > 45:
@@ -430,6 +479,8 @@ def _assemble(city, pred_date, rest_type, wx, evs, attr, p, aov_pred,
         "model": "lightgbm",
         "interaction_multiplier": interaction,
         "prediction_interval_80": [lo, hi],
+        "interval_source": interval_source,
+        "predicted_index_p50": median,
         "expected_error_pct": ENGINE.metrics.get("orders", {}).get("mape_pct"),
         "training_source": ENGINE.meta.get("source"),
     }
@@ -462,8 +513,10 @@ def predict_impact_ml(city: str, pred_date: date, rest_type: str,
     scale = _normalizer(city, rest_type, pred_date.year)
     p = ENGINE.predict_orders(X) * scale
     aov = ENGINE.predict_aov(X)
+    q_pred = ENGINE.predict_quantiles(X, rows=[0])
     return _assemble(city, pred_date, rest_type, wx, evs, attr, p, aov,
-                     explain, X=X if (explain and drivers) else None)
+                     explain, X=X if (explain and drivers) else None,
+                     q_pred=q_pred, qscale=scale)
 
 
 def predict_date_range_ml(city, start_dt, end_dt, temp_data=None, rest_types=None,
@@ -498,14 +551,17 @@ def predict_date_range_ml(city, start_dt, end_dt, temp_data=None, rest_types=Non
     X = rows_to_frame(all_rows)
     p = ENGINE.predict_orders(X)
     aov = ENGINE.predict_aov(X)
+    a_rows = [off for *_, off, _n in jobs]              # row A of each job
+    q_all = ENGINE.predict_quantiles(X, rows=a_rows)
 
     results = {rt: [] for rt in rest_types}
-    for d, rt, wx, evs, attr, off, n in jobs:
+    for i, (d, rt, wx, evs, attr, off, n) in enumerate(jobs):
         scale = _normalizer(city, rt, d.year)
         seg = p[off:off + n] * scale
         seg_aov = aov[off:off + n] if aov is not None else None
+        q_one = ({q: v[i:i + 1] for q, v in q_all.items()} if q_all is not None else None)
         results[rt].append(_assemble(city, d, rt, wx, evs, attr, seg, seg_aov,
-                                     explain, X=None))
+                                     explain, X=None, q_pred=q_one, qscale=scale))
     return results
 
 

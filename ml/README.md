@@ -107,9 +107,9 @@ on everything after, so it measures forecasting, not interpolation.
 
 | model | MAPE | R² |
 |---|---|---|
-| orders (ML) | **8.86%** | 0.933 |
-| orders — naive day-of-week × type baseline | 27.78% | 0.149 |
-| AOV (ML) | 4.68% | 0.986 |
+| orders (ML) | **8.68%** | 0.935 |
+| orders — naive day-of-week × type baseline | 28.05% | 0.125 |
+| AOV (ML) | 4.66% | 0.986 |
 
 Read this as *"the pipeline works and beats the obvious baseline by 3×"*, not as
 a claim about real Indian restaurants — see the caveat below.
